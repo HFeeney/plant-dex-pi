@@ -1,0 +1,6 @@
+credentials.py
+records/*
+images/*
+tmp
+__pycache__
+.DS_Store
