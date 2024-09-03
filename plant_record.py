@@ -2,8 +2,11 @@ import email
 import os
 import pyzmail
 import json
+import requests
 from pathvalidate import sanitize_filename
+from credentials import API_KEY
 
+IDENTIFICATION_THRESHOLD = 0.5
 
 REC_SAVE_DIR = os.path.join(os.path.dirname(__file__), 'records')
 IMG_SAVE_DIR = os.path.join(os.path.dirname(__file__), 'images')
@@ -37,27 +40,48 @@ class Record:
 
         # Read the parts (attachments) of the email.
         for part in msg.mailparts:
-            # Text part of the email. Only attempt to interpret one text file.
-            if name == None and part.filename and part.filename.lower().endswith('.txt'):
-                text = part.get_payload().decode(part.charset)
-                lines = text.splitlines()
-                
-                # Fail if there aren't enough lines or the keyword is missing.
-                if len(lines) < 2 or lines[0].lower() != 'plant':
-                    return None
-
-                name = lines[1].lower()
-                info = '' if len(lines) == 2 else ' '.join(lines[2:])
-
-
             # Image part of the email. Only attempt to store one image.
-            if img_data == None and part.filename and part.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
+            if part.filename and part.filename.lower().endswith(('.png', '.jpg', '.jpeg')):
                 img_data = part.get_payload()
                 img_name = msgid + part.filename[part.filename.rfind('.'):]
+                break
 
 
-        # Fail if either the text or image attachment was missing.
-        if name == None or img_data == None:
+        # Fail if the image attachment was missing.
+        if img_data == None:
+            return None
+
+        # Attempt to identify the plant using Pl@ntNet
+        api_url = 'https://my-api.plantnet.org/v2/identify/all'
+        params = {'nb-results': '1', 'type': 'kt', 'api-key': API_KEY}
+        images = [('images', img_data)]
+        r = requests.post(api_url, params=params, files=images)
+
+        # Fail if identification failed
+        if r.status_code != 200:
+            return None
+
+        # Attempt json conversion
+        try:
+            result_json = r.json()
+            print(result_json)
+
+            if len(result_json['results']) == 0:
+                return None
+
+            # Fail if the identification result is too low 
+            results_first = result_json['results'][0]
+            if results_first['score'] < IDENTIFICATION_THRESHOLD:
+                return None
+
+            result_plant = results_first['species']
+            info = result_plant['scientificName']
+            if len(result_plant['commonNames']) == 0:
+                return None
+
+            name = result_plant['commonNames'][0]
+
+        except requests.exceptions.JSONDecodeError:
             return None
 
         # The email contained valid data for a plant record.

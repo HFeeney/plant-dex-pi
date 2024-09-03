@@ -4,3 +4,4 @@ images/*
 tmp
 __pycache__
 .DS_Store
+notes.txt
